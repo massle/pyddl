@@ -329,21 +329,40 @@ class DatalogEngine:
             ),
             cost_function,
         )
+
+        indented_code = '\n'.join('    ' + line for line in self.code.split('\n'))
+        function_source = f"""
+def generated_datalog_engine(env):
+    RELATIONS = "relations"
+    FLUENTS = "fluents"
+    relations = env[RELATIONS]
+    fluents = env[FLUENTS]
+{indented_code}
+"""
+
+        namespace = {}
+        exec(compile(function_source, "<string>", "exec"), namespace)
+        self.execute_datalog_engine = namespace['generated_datalog_engine']
+
         self.static_atoms = list(program.trivial_clauses)
         self.static_atoms.extend([
             Atom(self.object_relation, [Constant(obj, False)])
             for obj in range(num_objects)
         ])
+        self.static_atom_tuples = [
+            (atom.relation_id, tuple(arg.id for arg in atom.arguments))
+            for atom in self.static_atoms
+        ]
 
     def __call__(
         self, facts: Database, fluents: FluentsDatabase | None = None
     ) -> Database:
         env = {FLUENTS: fluents, RELATIONS: [set(r) for r in facts]}
         env[RELATIONS].append(set())
-        for atom in self.static_atoms:
-            env[RELATIONS][atom.relation_id].add(
-                tuple((arg.id for arg in atom.arguments))
-            )
-        exec(self.bin, env)
+
+        for relation_id, args_tuple in self.static_atom_tuples:
+            env[RELATIONS][relation_id].add(args_tuple)
+
+        self.execute_datalog_engine(env)
         del env[RELATIONS][self.object_relation]
         return env[RELATIONS]
